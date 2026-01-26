@@ -87,10 +87,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Hata: {str(e)}")
         error_message = "❌ Bir hata oluştu.\n\n"
+        error_str = str(e).lower()
 
-        if "Private" in str(e) or "private" in str(e):
+        if "private" in error_str:
             error_message += "Bu video gizli, erişilemiyor."
-        elif "not found" in str(e).lower():
+        elif "login required" in error_str or "rate-limit" in error_str or "not available" in error_str:
+            error_message += "Bu videoya erişilemiyor. Muhtemel sebepler:\n"
+            error_message += "• Video gizli/private olabilir\n"
+            error_message += "• Instagram geçici olarak engellemiş olabilir\n"
+            error_message += "• Farklı bir video deneyin"
+        elif "not found" in error_str:
             error_message += "Video bulunamadı."
         else:
             error_message += "Lütfen tekrar deneyin."
