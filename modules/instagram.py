@@ -53,6 +53,7 @@ async def download_video(url: str) -> tuple[str, str]:
         Exception: İndirme başarısız olursa
     """
     temp_dir = tempfile.mkdtemp()
+    session_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instagram_session')
 
     try:
         # Instaloader instance oluştur
@@ -67,27 +68,68 @@ async def download_video(url: str) -> tuple[str, str]:
             filename_pattern='{shortcode}'
         )
 
-        # Login yap
-        if INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
-            try:
-                # Önce session dosyasını dene
-                session_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instagram_session')
-                if os.path.exists(session_file):
-                    L.load_session_from_file(INSTAGRAM_USERNAME, session_file)
-                else:
-                    L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
-            except Exception as login_error:
-                # Login başarısız olursa anonim devam et
-                pass
+        def login_to_instagram():
+            if INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
+                try:
+                    # Önce session dosyasını dene
+                    if os.path.exists(session_file):
+                        try:
+                            L.load_session_from_file(INSTAGRAM_USERNAME, session_file)
+                            print("Session yüklendi.")
+                        except Exception as e:
+                            print(f"Session yüklenirken hata: {e}")
+                            L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+                    else:
+                        print("Session dosyası yok, yeni giriş yapılıyor...")
+                        L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+                    
+                    # Başarılı giriş sonrası session kaydet
+                    L.save_session_to_file(filename=session_file)
+                    
+                except Exception as login_error:
+                    print(f"Login hatası: {login_error}")
+                    # Login başarısız olsa da devam et (anonim deneme)
+                    pass
+
+        # İlk deneme
+        login_to_instagram()
 
         # Shortcode'u çıkar
         shortcode = extract_shortcode(url)
         if not shortcode:
             raise Exception("Geçersiz Instagram URL'si")
 
-        # Post'u indir
-        post = instaloader.Post.from_shortcode(L.context, shortcode)
-        L.download_post(post, target=temp_dir)
+        try:
+            # Post'u indir
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            L.download_post(post, target=temp_dir)
+        except (instaloader.ConnectionException, instaloader.QueryReturnedNotFoundException, instaloader.LoginRequiredException) as e:
+            # 401 veya benzeri hatalarda session'ı silip tekrar dene
+            error_str = str(e)
+            if "401" in error_str or "fail" in error_str or isinstance(e, instaloader.LoginRequiredException):
+                print(f"Hata alındı ({error_str}), session silinip tekrar deneniyor...")
+                if os.path.exists(session_file):
+                    os.remove(session_file)
+                
+                # Yeni temiz instance
+                L = instaloader.Instaloader(
+                    download_videos=True,
+                    download_video_thumbnails=False,
+                    download_geotags=False,
+                    download_comments=False,
+                    save_metadata=False,
+                    compress_json=False,
+                    dirname_pattern=temp_dir,
+                    filename_pattern='{shortcode}'
+                )
+                # Tekrar login (session dosyası olmadığı için taze login yapacak)
+                login_to_instagram()
+                
+                # Tekrar indir
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+                L.download_post(post, target=temp_dir)
+            else:
+                raise e
 
         # Video dosyasını bul
         video_path = None
