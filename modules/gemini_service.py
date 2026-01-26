@@ -59,7 +59,7 @@ async def translate_text(text: str, target_language: str) -> str:
     if not text or text == "Bu videoda konuşma bulunamadı.":
         return text
 
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 
     prompt = f"""Aşağıdaki metni {target_language} diline çevir.
 Sadece çeviriyi yaz, başka hiçbir şey ekleme.
