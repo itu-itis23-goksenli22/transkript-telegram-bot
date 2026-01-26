@@ -16,7 +16,7 @@ async def transcribe_video(video_path: str) -> str:
     Returns:
         Transkript metni
     """
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 
     # Video dosyasını yükle
     video_file = genai.upload_file(video_path)
