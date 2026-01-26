@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# Instagram session
+instagram_session
+
 # Virtual environment
 venv/
 env/

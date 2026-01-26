@@ -1,7 +1,7 @@
 import os
 import re
 import tempfile
-import yt_dlp
+import instaloader
 
 from config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD
 
@@ -32,53 +32,83 @@ def extract_instagram_url(text: str) -> str | None:
     return None
 
 
+def extract_shortcode(url: str) -> str:
+    """URL'den Instagram shortcode'u çıkarır."""
+    # https://www.instagram.com/reel/ABC123/ -> ABC123
+    # https://www.instagram.com/p/XYZ789/ -> XYZ789
+    match = re.search(r'/(p|reel|reels|tv)/([\w-]+)', url)
+    if match:
+        return match.group(2)
+    return None
+
+
 async def download_video(url: str) -> tuple[str, str]:
     """
     Instagram videosunu indirir.
 
     Returns:
-        tuple: (video_path, audio_path) - Video ve ses dosyası yolları
+        tuple: (video_path, temp_dir) - Video dosyası yolu ve geçici klasör
 
     Raises:
         Exception: İndirme başarısız olursa
     """
     temp_dir = tempfile.mkdtemp()
-    output_template = os.path.join(temp_dir, 'video.%(ext)s')
-
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': output_template,
-        'quiet': True,
-        'no_warnings': True,
-        'extract_audio': False,
-    }
-
-    # Instagram login bilgileri varsa ekle
-    if INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
-        ydl_opts['username'] = INSTAGRAM_USERNAME
-        ydl_opts['password'] = INSTAGRAM_PASSWORD
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_ext = info.get('ext', 'mp4')
-            video_path = os.path.join(temp_dir, f'video.{video_ext}')
+        # Instaloader instance oluştur
+        L = instaloader.Instaloader(
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False,
+            dirname_pattern=temp_dir,
+            filename_pattern='{shortcode}'
+        )
 
-            if not os.path.exists(video_path):
-                # Bazen farklı extension ile kaydedilebilir
-                for f in os.listdir(temp_dir):
-                    if f.startswith('video.'):
-                        video_path = os.path.join(temp_dir, f)
-                        break
+        # Login yap
+        if INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
+            try:
+                # Önce session dosyasını dene
+                session_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'instagram_session')
+                if os.path.exists(session_file):
+                    L.load_session_from_file(INSTAGRAM_USERNAME, session_file)
+                else:
+                    L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+            except Exception as login_error:
+                # Login başarısız olursa anonim devam et
+                pass
 
-            return video_path, temp_dir
+        # Shortcode'u çıkar
+        shortcode = extract_shortcode(url)
+        if not shortcode:
+            raise Exception("Geçersiz Instagram URL'si")
 
+        # Post'u indir
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        L.download_post(post, target=temp_dir)
+
+        # Video dosyasını bul
+        video_path = None
+        for f in os.listdir(temp_dir):
+            if f.endswith('.mp4'):
+                video_path = os.path.join(temp_dir, f)
+                break
+
+        if not video_path:
+            raise Exception("Video dosyası bulunamadı")
+
+        return video_path, temp_dir
+
+    except instaloader.exceptions.LoginRequiredException:
+        cleanup(temp_dir)
+        raise Exception("Bu video için login gerekiyor")
+    except instaloader.exceptions.PrivateProfileNotFollowedException:
+        cleanup(temp_dir)
+        raise Exception("Bu profil gizli")
     except Exception as e:
-        # Temizlik
-        if os.path.exists(temp_dir):
-            for f in os.listdir(temp_dir):
-                os.remove(os.path.join(temp_dir, f))
-            os.rmdir(temp_dir)
+        cleanup(temp_dir)
         raise Exception(f"Video indirilemedi: {str(e)}")
 
 
