@@ -3,6 +3,8 @@ import re
 import tempfile
 import yt_dlp
 
+from config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD
+
 
 def is_instagram_url(url: str) -> bool:
     """Instagram URL'si olup olmadığını kontrol eder."""
@@ -50,6 +52,11 @@ async def download_video(url: str) -> tuple[str, str]:
         'no_warnings': True,
         'extract_audio': False,
     }
+
+    # Instagram login bilgileri varsa ekle
+    if INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
+        ydl_opts['username'] = INSTAGRAM_USERNAME
+        ydl_opts['password'] = INSTAGRAM_PASSWORD
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
