@@ -1,3 +1,4 @@
+import time
 import google.generativeai as genai
 from config import GEMINI_API_KEY
 
@@ -15,15 +16,23 @@ async def transcribe_video(video_path: str) -> str:
     Returns:
         Transkript metni
     """
-    model = genai.GenerativeModel('gemini-3-flash-preview')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     # Video dosyasını yükle
     video_file = genai.upload_file(video_path)
+    
+    # Dosyanın işlenmesini bekle
+    while video_file.state.name == "PROCESSING":
+        time.sleep(2)
+        video_file = genai.get_file(video_file.name)
+
+    if video_file.state.name == "FAILED":
+        raise ValueError("Video işlenirken hata oluştu.")
 
     # Transkript iste
     prompt = """Bu videodaki konuşmaları tam olarak transkript et.
-Sadece konuşulan metni yaz, başka hiçbir şey ekleme.
-Eğer videoda konuşma yoksa "Bu videoda konuşma bulunamadı." yaz."""
+    Sadece konuşulan metni yaz, başka hiçbir şey ekleme.
+    Eğer videoda konuşma yoksa "Bu videoda konuşma bulunamadı." yaz."""
 
     response = model.generate_content([video_file, prompt])
 
@@ -50,7 +59,7 @@ async def translate_text(text: str, target_language: str) -> str:
     if not text or text == "Bu videoda konuşma bulunamadı.":
         return text
 
-    model = genai.GenerativeModel('gemini-3-flash-preview')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     prompt = f"""Aşağıdaki metni {target_language} diline çevir.
 Sadece çeviriyi yaz, başka hiçbir şey ekleme.
