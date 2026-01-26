@@ -13,6 +13,22 @@ def main():
     """Bot'u başlatır."""
     logger.info("Bot başlatılıyor...")
 
+    # Railway/Cloud Session Restore
+    import os
+    import base64
+    from config import INSTAGRAM_SESSION_DATA
+
+    session_path = os.path.join(os.path.dirname(__file__), 'instagram_session')
+    
+    if INSTAGRAM_SESSION_DATA and not os.path.exists(session_path):
+        try:
+            logger.info("Environment variable'dan session yükleniyor...")
+            with open(session_path, 'wb') as f:
+                f.write(base64.b64decode(INSTAGRAM_SESSION_DATA))
+            logger.info("Session oluşturuldu.")
+        except Exception as e:
+            logger.error(f"Session oluşturulurken hata: {e}")
+
     # Bot oluştur
     application = create_bot()
 
