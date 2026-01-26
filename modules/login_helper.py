@@ -13,7 +13,9 @@ def manual_login():
     print(f"Kullanıcı: {INSTAGRAM_USERNAME}")
     print("Giriş yapılıyor...")
 
-    L = instaloader.Instaloader()
+    L = instaloader.Instaloader(
+        user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 239.2.0.12.109 (iPhone12,1; iOS 15_5; en_US; en-US; scale=2.00; 828x1792; 376668393)"
+    )
     session_file = os.path.join(os.path.dirname(__file__), 'instagram_session')
 
     try:

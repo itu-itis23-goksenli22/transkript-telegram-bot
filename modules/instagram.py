@@ -65,7 +65,8 @@ async def download_video(url: str) -> tuple[str, str]:
             save_metadata=False,
             compress_json=False,
             dirname_pattern=temp_dir,
-            filename_pattern='{shortcode}'
+            filename_pattern='{shortcode}',
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 239.2.0.12.109 (iPhone12,1; iOS 15_5; en_US; en-US; scale=2.00; 828x1792; 376668393)"
         )
 
         def login_to_instagram():
@@ -120,7 +121,8 @@ async def download_video(url: str) -> tuple[str, str]:
                     save_metadata=False,
                     compress_json=False,
                     dirname_pattern=temp_dir,
-                    filename_pattern='{shortcode}'
+                    filename_pattern='{shortcode}',
+                    user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 239.2.0.12.109 (iPhone12,1; iOS 15_5; en_US; en-US; scale=2.00; 828x1792; 376668393)"
                 )
                 # Tekrar login (session dosyası olmadığı için taze login yapacak)
                 login_to_instagram()
