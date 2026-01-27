@@ -1,10 +1,11 @@
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import io
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN
 from modules.instagram import extract_instagram_url, download_video, cleanup
-from modules.gemini_service import process_video
+from modules.gemini_service import process_video, generate_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # İşlem başlıyor
-    status_message = await update.message.reply_text("⏳ Video indiriliyor...")
+    # URL'yi context'e kaydet
+    context.user_data['instagram_url'] = instagram_url
+
+    # Seçenek butonları göster
+    keyboard = [
+        [
+            InlineKeyboardButton("📝 Transkript", callback_data="action_transcript"),
+            InlineKeyboardButton("🖼️ Thumbnail", callback_data="action_thumbnail"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "Ne yapmak istiyorsun?",
+        reply_markup=reply_markup
+    )
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inline buton tıklamalarını işler."""
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data
+    instagram_url = context.user_data.get('instagram_url')
+
+    if not instagram_url:
+        await query.edit_message_text("❌ Link bulunamadı. Lütfen tekrar bir Instagram linki gönderin.")
+        return
+
+    if action == "action_transcript":
+        await process_transcript(query, context, instagram_url)
+    elif action == "action_thumbnail":
+        await process_thumbnail_request(query, context, instagram_url)
+
+
+async def process_transcript(query, context: ContextTypes.DEFAULT_TYPE, instagram_url: str):
+    """Transkript işlemini gerçekleştirir."""
+    await query.edit_message_text("⏳ Video indiriliyor...")
     temp_dir = None
 
     try:
@@ -52,15 +90,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         video_path, temp_dir = await download_video(instagram_url)
 
         # Durum güncelle
-        await status_message.edit_text("🎯 Transkript çıkarılıyor...")
+        await query.edit_message_text("🎯 Transkript çıkarılıyor ve çeviriler hazırlanıyor...")
 
         # Transkript ve çeviri
-        await status_message.edit_text("🎯 Transkript çıkarılıyor ve çeviriler hazırlanıyor...")
         result = await process_video(video_path)
 
         # Sonuç mesajını formatla
         if result['original'] == "Bu videoda konuşma bulunamadı.":
-            await status_message.edit_text("❌ Bu videoda konuşma bulunamadı.")
+            await query.edit_message_text("❌ Bu videoda konuşma bulunamadı.")
             return
 
         response_text = f"""✅ İşlem tamamlandı!
@@ -76,13 +113,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Mesaj çok uzunsa parçala
         if len(response_text) > 4000:
-            await status_message.edit_text("✅ İşlem tamamlandı!")
+            await query.edit_message_text("✅ İşlem tamamlandı!")
 
-            await update.message.reply_text(f"📝 **Orijinal Transkript:**\n{result['original']}")
-            await update.message.reply_text(f"🇹🇷 **Türkçe:**\n{result['turkish']}")
-            await update.message.reply_text(f"🇬🇧 **English:**\n{result['english']}")
+            chat_id = query.message.chat_id
+            await context.bot.send_message(chat_id, f"📝 **Orijinal Transkript:**\n{result['original']}")
+            await context.bot.send_message(chat_id, f"🇹🇷 **Türkçe:**\n{result['turkish']}")
+            await context.bot.send_message(chat_id, f"🇬🇧 **English:**\n{result['english']}")
         else:
-            await status_message.edit_text(response_text)
+            await query.edit_message_text(response_text)
 
     except Exception as e:
         logger.error(f"Hata: {str(e)}")
@@ -101,7 +139,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             error_message += "Lütfen tekrar deneyin."
 
-        await status_message.edit_text(error_message)
+        await query.edit_message_text(error_message)
+
+    finally:
+        # Temizlik
+        if temp_dir:
+            cleanup(temp_dir)
+
+
+async def process_thumbnail_request(query, context: ContextTypes.DEFAULT_TYPE, instagram_url: str):
+    """Thumbnail oluşturma işlemini gerçekleştirir."""
+    await query.edit_message_text("⏳ Video indiriliyor...")
+    temp_dir = None
+
+    try:
+        # Video indir
+        video_path, temp_dir = await download_video(instagram_url)
+
+        # Durum güncelle
+        await query.edit_message_text("🎨 Thumbnail oluşturuluyor... (Bu biraz zaman alabilir)")
+
+        # Thumbnail oluştur
+        image_bytes, hook_text = await generate_thumbnail(video_path)
+
+        # Görseli gönder
+        chat_id = query.message.chat_id
+        await query.edit_message_text("✅ Thumbnail hazır!")
+
+        # Bytes'ı dosya olarak gönder
+        image_file = io.BytesIO(image_bytes)
+        image_file.name = "thumbnail.png"
+
+        await context.bot.send_photo(
+            chat_id=chat_id,
+            photo=image_file,
+            caption=f"🖼️ Instagram Reels Thumbnail\n\n📌 Hook: **{hook_text}**"
+        )
+
+    except Exception as e:
+        logger.error(f"Thumbnail hatası: {str(e)}")
+        error_message = "❌ Thumbnail oluşturulurken hata oluştu.\n\n"
+        error_str = str(e).lower()
+
+        if "private" in error_str:
+            error_message += "Bu video gizli, erişilemiyor."
+        elif "image" in error_str or "görsel" in error_str:
+            error_message += "Görsel oluşturulamadı. Lütfen tekrar deneyin."
+        else:
+            error_message += "Lütfen tekrar deneyin."
+
+        await query.edit_message_text(error_message)
 
     finally:
         # Temizlik
@@ -116,5 +203,6 @@ def create_bot() -> Application:
     # Handler'ları ekle
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CallbackQueryHandler(handle_callback))
 
     return application

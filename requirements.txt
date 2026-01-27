@@ -1,4 +1,7 @@
 python-telegram-bot>=20.0
 instaloader>=4.10
 google-generativeai>=0.4.0
+google-genai>=1.0.0
 python-dotenv>=1.0.0
+ffmpeg-python>=0.2.0
+pillow>=10.0.0

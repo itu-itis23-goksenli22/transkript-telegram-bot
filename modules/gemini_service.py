@@ -1,9 +1,19 @@
 import time
+import io
+import os
+import subprocess
+import base64
 import google.generativeai as genai
+from google import genai as genai_new
+from google.genai import types
+from PIL import Image
 from config import GEMINI_API_KEY
 
-# Gemini API yapılandırması
+# Gemini API yapılandırması (eski SDK - transkript için)
 genai.configure(api_key=GEMINI_API_KEY)
+
+# Yeni Gemini client (Nano Banana Pro için)
+genai_client = genai_new.Client(api_key=GEMINI_API_KEY)
 
 
 async def transcribe_video(video_path: str) -> str:
@@ -98,3 +108,170 @@ async def process_video(video_path: str) -> dict:
         'turkish': turkish,
         'english': english
     }
+
+
+async def generate_hook_text(transcript: str) -> str:
+    """
+    Transkriptten kısa ve dikkat çekici hook text oluşturur.
+
+    Args:
+        transcript: Video transkripti
+
+    Returns:
+        2-5 kelimelik hook text
+    """
+    model = genai.GenerativeModel('gemini-2.0-flash')
+
+    prompt = f"""Aşağıdaki video transkriptinden Instagram Reels thumbnail için kısa ve dikkat çekici bir başlık (hook text) oluştur.
+
+Transkript:
+{transcript[:500]}
+
+Kurallar:
+1. SADECE 2-5 kelime olmalı
+2. Türkçe veya İngilizce olabilir (hangisi daha etkili olacaksa)
+3. Büyük harfle yaz
+4. Merak uyandırıcı olmalı
+5. Sadece başlığı yaz, başka bir şey yazma
+
+Örnek başlıklar:
+- "BU SIR DEĞİŞTİRİR"
+- "90% AI 10% HUMAN"
+- "FREE TOOLS FOR EVERYTHING"
+- "GOOGLE'S FREE TOOLS ARE INSANE" """
+
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+
+async def generate_thumbnail_prompt(transcript: str, hook_text: str) -> str:
+    """
+    Transkriptten thumbnail için prompt oluşturur.
+
+    Args:
+        transcript: Video transkripti
+        hook_text: Görselin üzerine yazılacak hook text
+
+    Returns:
+        Thumbnail için optimize edilmiş prompt
+    """
+    model = genai.GenerativeModel('gemini-2.0-flash')
+
+    prompt = f"""Create an Instagram Reels thumbnail image prompt based on this video transcript.
+
+Transcript summary:
+{transcript[:500]}
+
+Hook text to display on image: "{hook_text}"
+
+Requirements:
+1. Pop-art or vibrant artistic style
+2. Bold, saturated colors (like pink, yellow, cyan, orange)
+3. Eye-catching and viral-worthy design
+4. Include the hook text "{hook_text}" prominently displayed with bold typography
+5. Modern, trendy Instagram aesthetic
+6. 9:16 vertical format suitable for Reels
+7. High contrast and attention-grabbing
+8. Can include relevant visual elements related to the topic
+
+Output ONLY the image generation prompt in English, nothing else.
+
+Example style: "Vibrant pop-art style Instagram Reels thumbnail with bold text '{hook_text}' in large yellow typography, colorful artistic background with [relevant visual], saturated colors, modern social media aesthetic, eye-catching design, 9:16 vertical format" """
+
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+
+def extract_frame_from_video(video_path: str, output_path: str = None, time_offset: float = 1.0) -> str:
+    """
+    Video'dan belirli bir zamandaki frame'i çıkarır.
+
+    Args:
+        video_path: Video dosyasının yolu
+        output_path: Çıktı dosyası yolu (None ise otomatik oluşturulur)
+        time_offset: Hangi saniyeden frame alınacak (default: 1.0)
+
+    Returns:
+        Frame dosyasının yolu
+    """
+    if output_path is None:
+        output_path = video_path.rsplit('.', 1)[0] + '_frame.jpg'
+
+    # ffmpeg ile frame çıkar
+    cmd = [
+        'ffmpeg', '-y',
+        '-ss', str(time_offset),
+        '-i', video_path,
+        '-vframes', '1',
+        '-q:v', '2',
+        output_path
+    ]
+
+    subprocess.run(cmd, capture_output=True, check=True)
+    return output_path
+
+
+async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
+    """
+    Video'dan frame alıp Instagram Reels için thumbnail oluşturur (image-to-image).
+
+    Args:
+        video_path: Video dosyasının yolu
+
+    Returns:
+        tuple: (PNG formatında görsel bytes, hook_text)
+    """
+    # Video'dan frame çıkar
+    frame_path = extract_frame_from_video(video_path)
+
+    # Transkript çıkar (konuyu anlamak için)
+    transcript = await transcribe_video(video_path)
+
+    # Hook text oluştur
+    if transcript == "Bu videoda konuşma bulunamadı.":
+        hook_text = "WATCH THIS"
+    else:
+        hook_text = await generate_hook_text(transcript)
+
+    # Frame'i base64'e çevir
+    with open(frame_path, 'rb') as f:
+        frame_bytes = f.read()
+
+    # Image-to-image prompt oluştur
+    edit_prompt = f"""Transform this video frame into a vibrant, eye-catching Instagram Reels thumbnail.
+
+Requirements:
+1. Keep the main subject/person from the original image
+2. Add bold, large text "{hook_text}" prominently displayed (preferably at top or bottom)
+3. Apply pop-art or vibrant artistic style with saturated colors (pink, yellow, cyan, orange)
+4. Make it look professional and viral-worthy
+5. Add visual effects like color splash, gradients, or artistic filters
+6. The text should have a contrasting background/outline for readability
+7. Keep the 9:16 vertical format
+
+Style reference: Modern Instagram Reels thumbnails with bold typography and vibrant colors."""
+
+    # Gemini ile image-to-image düzenleme yap
+    response = genai_client.models.generate_content(
+        model="gemini-2.0-flash-exp-image-generation",
+        contents=[
+            types.Part.from_bytes(data=frame_bytes, mime_type="image/jpeg"),
+            edit_prompt
+        ],
+        config=types.GenerateContentConfig(
+            response_modalities=['IMAGE'],
+        ),
+    )
+
+    # Temizlik - frame dosyasını sil
+    try:
+        os.remove(frame_path)
+    except:
+        pass
+
+    # Görseli bytes olarak al
+    for part in response.candidates[0].content.parts:
+        if part.inline_data is not None:
+            return (part.inline_data.data, hook_text)
+
+    raise ValueError("Görsel oluşturulamadı.")
