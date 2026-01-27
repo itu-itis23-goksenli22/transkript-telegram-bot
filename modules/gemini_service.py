@@ -1,12 +1,9 @@
 import time
 import io
 import os
-import subprocess
-import base64
 import google.generativeai as genai
 from google import genai as genai_new
 from google.genai import types
-from PIL import Image
 from config import GEMINI_API_KEY
 
 # Gemini API yapılandırması (eski SDK - transkript için)
@@ -182,48 +179,20 @@ Example style: "Vibrant pop-art style Instagram Reels thumbnail with bold text '
     return response.text.strip()
 
 
-def extract_frame_from_video(video_path: str, output_path: str = None, time_offset: float = 1.0) -> str:
-    """
-    Video'dan belirli bir zamandaki frame'i çıkarır.
-
-    Args:
-        video_path: Video dosyasının yolu
-        output_path: Çıktı dosyası yolu (None ise otomatik oluşturulur)
-        time_offset: Hangi saniyeden frame alınacak (default: 1.0)
-
-    Returns:
-        Frame dosyasının yolu
-    """
-    if output_path is None:
-        output_path = video_path.rsplit('.', 1)[0] + '_frame.jpg'
-
-    # ffmpeg ile frame çıkar
-    cmd = [
-        'ffmpeg', '-y',
-        '-ss', str(time_offset),
-        '-i', video_path,
-        '-vframes', '1',
-        '-q:v', '2',
-        output_path
-    ]
-
-    subprocess.run(cmd, capture_output=True, check=True)
-    return output_path
+# Sabit thumbnail input görseli
+THUMBNAIL_BASE_IMAGE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'thumbnail_base.jpg')
 
 
 async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
     """
-    Video'dan frame alıp Instagram Reels için thumbnail oluşturur (image-to-image).
+    Sabit görsel üzerine transkripte göre thumbnail oluşturur (image-to-image).
 
     Args:
-        video_path: Video dosyasının yolu
+        video_path: Video dosyasının yolu (sadece transkript için)
 
     Returns:
         tuple: (PNG formatında görsel bytes, hook_text)
     """
-    # Video'dan frame çıkar
-    frame_path = extract_frame_from_video(video_path)
-
     # Transkript çıkar (konuyu anlamak için)
     transcript = await transcribe_video(video_path)
 
@@ -233,12 +202,12 @@ async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
     else:
         hook_text = await generate_hook_text(transcript)
 
-    # Frame'i base64'e çevir
-    with open(frame_path, 'rb') as f:
-        frame_bytes = f.read()
+    # Sabit görseli oku
+    with open(THUMBNAIL_BASE_IMAGE, 'rb') as f:
+        base_image_bytes = f.read()
 
     # Image-to-image prompt oluştur
-    edit_prompt = f"""Transform this video frame into a vibrant, eye-catching Instagram Reels thumbnail.
+    edit_prompt = f"""Transform this image into a vibrant, eye-catching Instagram Reels thumbnail.
 
 Requirements:
 1. Keep the main subject/person from the original image
@@ -255,19 +224,13 @@ Style reference: Modern Instagram Reels thumbnails with bold typography and vibr
     response = genai_client.models.generate_content(
         model="gemini-2.0-flash-exp-image-generation",
         contents=[
-            types.Part.from_bytes(data=frame_bytes, mime_type="image/jpeg"),
+            types.Part.from_bytes(data=base_image_bytes, mime_type="image/jpeg"),
             edit_prompt
         ],
         config=types.GenerateContentConfig(
             response_modalities=['IMAGE'],
         ),
     )
-
-    # Temizlik - frame dosyasını sil
-    try:
-        os.remove(frame_path)
-    except:
-        pass
 
     # Görseli bytes olarak al
     for part in response.candidates[0].content.parts:
