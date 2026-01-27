@@ -183,6 +183,34 @@ Example style: "Vibrant pop-art style Instagram Reels thumbnail with bold text '
 THUMBNAIL_BASE_IMAGE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'thumbnail_base.jpg')
 
 
+async def generate_topic_summary(transcript: str) -> str:
+    """
+    Transkriptten konu özeti çıkarır.
+
+    Args:
+        transcript: Video transkripti
+
+    Returns:
+        Kısa konu özeti (1-2 cümle)
+    """
+    model = genai.GenerativeModel('gemini-2.0-flash')
+
+    prompt = f"""Aşağıdaki video transkriptinin konusunu 1-2 cümleyle özetle.
+Sadece konuyu yaz, başka bir şey ekleme.
+
+Transkript:
+{transcript[:800]}
+
+Örnek çıktılar:
+- "Python programlama eğitimi ve temel kodlama teknikleri"
+- "Yapay zeka araçlarının iş hayatında kullanımı"
+- "Instagram'da viral olmanın sırları"
+- "Kişisel gelişim ve motivasyon tavsiyeleri" """
+
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+
 async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
     """
     Sabit görsel üzerine transkripte göre thumbnail oluşturur (image-to-image).
@@ -196,39 +224,48 @@ async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
     # Transkript çıkar (konuyu anlamak için)
     transcript = await transcribe_video(video_path)
 
-    # Hook text oluştur
+    # Hook text ve konu özeti oluştur
     if transcript == "Bu videoda konuşma bulunamadı.":
         hook_text = "WATCH THIS"
+        topic_summary = "General content"
     else:
         hook_text = await generate_hook_text(transcript)
+        topic_summary = await generate_topic_summary(transcript)
 
     # Sabit görseli oku
     with open(THUMBNAIL_BASE_IMAGE, 'rb') as f:
         base_image_bytes = f.read()
 
-    # Image-to-image prompt oluştur
+    # Image-to-image prompt oluştur (transkript konusu dahil)
     edit_prompt = f"""Transform this image into a vibrant, eye-catching Instagram Reels thumbnail.
+
+VIDEO TOPIC: {topic_summary}
 
 Requirements:
 1. Keep the main subject/person from the original image
 2. Add bold, large text "{hook_text}" prominently displayed (preferably at top or bottom)
 3. Apply pop-art or vibrant artistic style with saturated colors (pink, yellow, cyan, orange)
-4. Make it look professional and viral-worthy
-5. Add visual effects like color splash, gradients, or artistic filters
-6. The text should have a contrasting background/outline for readability
-7. Keep the 9:16 vertical format
+4. Add visual elements or icons related to the topic: {topic_summary}
+5. Make it look professional and viral-worthy
+6. Add visual effects like color splash, gradients, or artistic filters
+7. The text should have a contrasting background/outline for readability
+8. Keep the 9:16 vertical format
 
-Style reference: Modern Instagram Reels thumbnails with bold typography and vibrant colors."""
+Style reference: Modern Instagram Reels thumbnails with bold typography, vibrant colors, and topic-relevant visual elements."""
 
-    # Gemini ile image-to-image düzenleme yap
+    # Nano Banana Pro (Gemini 3 Pro Image) ile image-to-image düzenleme yap
     response = genai_client.models.generate_content(
-        model="gemini-2.0-flash-exp-image-generation",
+        model="gemini-3-pro-image-preview",
         contents=[
             types.Part.from_bytes(data=base_image_bytes, mime_type="image/jpeg"),
             edit_prompt
         ],
         config=types.GenerateContentConfig(
-            response_modalities=['IMAGE'],
+            response_modalities=['TEXT', 'IMAGE'],
+            image_config=types.ImageConfig(
+                aspect_ratio="9:16",
+                image_size="2K"
+            )
         ),
     )
 
