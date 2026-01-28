@@ -211,7 +211,7 @@ Transkript:
     return response.text.strip()
 
 
-async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
+async def generate_thumbnail(video_path: str) -> tuple[bytes, str, str]:
     """
     Sabit görsel üzerine transkripte göre thumbnail oluşturur (image-to-image).
 
@@ -219,7 +219,7 @@ async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
         video_path: Video dosyasının yolu (sadece transkript için)
 
     Returns:
-        tuple: (PNG formatında görsel bytes, hook_text)
+        tuple: (PNG formatında görsel bytes, hook_text, transcript)
     """
     # Transkript çıkar (konuyu anlamak için)
     transcript = await transcribe_video(video_path)
@@ -237,22 +237,23 @@ async def generate_thumbnail(video_path: str) -> tuple[bytes, str]:
         base_image_bytes = f.read()
 
     # Image-to-image prompt oluştur (transkript konusu dahil)
-    edit_prompt = f"""Transform this image into a professional Instagram Reels thumbnail in this EXACT style:
+    edit_prompt = f"""Transform this image into a professional Instagram Reels thumbnail.
 
 VIDEO TOPIC: {topic_summary}
 
-EXACT STYLE REQUIREMENTS:
-1. Keep the person from the original image in the CENTER, looking at camera
-2. Add a DARK GRADIENT BACKGROUND behind the person
-3. Add FLOATING APP/TOOL LOGOS around the person related to the topic (like AI icons, Google logo, code symbols, tech logos etc.)
-4. At the BOTTOM of the image, add a COLORED SOLID BAR (red, orange, green, or blue) with BOLD WHITE TEXT
-5. The text "{hook_text}" should be in TWO LINES, ALL CAPS, BOLD WHITE FONT on the colored bar
-6. The colored text bar should cover the bottom 20-25% of the image
-7. Add subtle glow or lighting effects around the person
-8. Professional, clean, modern tech influencer style
-9. 9:16 vertical format for Instagram Reels
+STYLE REQUIREMENTS:
+1. You CAN modify the person's facial expression to look more engaging (excited, surprised, curious, happy)
+2. You CAN modify hand gestures to be more dynamic (pointing, thumbs up, hands raised, etc.)
+3. Enhance with subtle warm color grading (warmer skin tones, professional look)
+4. Replace background with PLAIN DARK/BLACK background - NO gradients, NO colorful backgrounds
+5. Add FLOATING APP/TOOL LOGOS around the person related to: {topic_summary} (AI icons, Google, tech logos, code symbols)
+6. The logos should be the main colorful elements against the dark background
+7. At the BOTTOM, add a SOLID COLOR BAR (red, orange, green, or blue) covering bottom 20%
+8. On the color bar, add BOLD WHITE TEXT: "{hook_text}" in ALL CAPS, two lines
+9. Clean, minimal, professional tech influencer aesthetic
+10. 9:16 vertical format
 
-REFERENCE STYLE: Tech YouTuber/Instagram thumbnails with person in center, floating logos around them, and bold text on colored banner at bottom.
+IMPORTANT: Background must be plain dark/black. Feel free to make the person look more expressive and engaging!
 
 TEXT TO DISPLAY: "{hook_text}" """
 
@@ -275,6 +276,6 @@ TEXT TO DISPLAY: "{hook_text}" """
     # Görseli bytes olarak al
     for part in response.candidates[0].content.parts:
         if part.inline_data is not None:
-            return (part.inline_data.data, hook_text)
+            return (part.inline_data.data, hook_text, transcript)
 
     raise ValueError("Görsel oluşturulamadı.")

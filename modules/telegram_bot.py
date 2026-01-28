@@ -160,7 +160,7 @@ async def process_thumbnail_request(query, context: ContextTypes.DEFAULT_TYPE, i
         await query.edit_message_text("🎨 Thumbnail oluşturuluyor... (Bu biraz zaman alabilir)")
 
         # Thumbnail oluştur
-        image_bytes, hook_text = await generate_thumbnail(video_path)
+        image_bytes, hook_text, transcript = await generate_thumbnail(video_path)
 
         # Görseli gönder
         chat_id = query.message.chat_id
@@ -175,6 +175,13 @@ async def process_thumbnail_request(query, context: ContextTypes.DEFAULT_TYPE, i
             photo=image_file,
             caption=f"🖼️ Instagram Reels Thumbnail\n\n📌 Hook: **{hook_text}**"
         )
+
+        # Transkripti de gönder
+        if transcript and transcript != "Bu videoda konuşma bulunamadı.":
+            transcript_message = f"📝 **Transkript:**\n\n{transcript}"
+            if len(transcript_message) > 4000:
+                transcript_message = transcript_message[:4000] + "..."
+            await context.bot.send_message(chat_id=chat_id, text=transcript_message)
 
     except Exception as e:
         logger.error(f"Thumbnail hatası: {str(e)}")
